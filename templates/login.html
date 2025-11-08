@@ -8,12 +8,13 @@
 </head>
 <body>
     <div class="header">
-        <div class="logo">Cybbit</div>
+        <div class="logo"><a href="/">Cybbit</a></div>
     </div>
     
     <div class="auth-container">
         <div class="auth-card">
-            <h1 class="auth-title">Login to Cybbit</h1>
+            <h1 class="auth-title">Welcome Back</h1>
+            <p class="auth-subtitle">Login to access your account</p>
             
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
@@ -23,15 +24,24 @@
                 {% endif %}
             {% endwith %}
             
+            {% if show_register_prompt %}
+            <div class="register-prompt">
+                <p class="prompt-text">🔐 This user is not registered in our system.</p>
+                <p class="prompt-subtext">Would you like to create an account?</p>
+                <a href="/register" class="register-link-btn">Create Account</a>
+            </div>
+            {% endif %}
+            
             <form method="POST" action="/login">
                 <div class="form-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" name="username" required>
+                    <label for="identifier">Username or Email</label>
+                    <input type="text" id="identifier" name="identifier" placeholder="Enter your username or email" required>
+                    <small class="form-hint">You can use either your username or email address</small>
                 </div>
                 
                 <div class="form-group">
                     <label for="password">Password</label>
-                    <input type="password" id="password" name="password" required>
+                    <input type="password" id="password" name="password" placeholder="Enter your password" required>
                 </div>
                 
                 <button type="submit" class="submit-btn">Login</button>

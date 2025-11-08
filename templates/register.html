@@ -8,12 +8,20 @@
 </head>
 <body>
     <div class="header">
-        <div class="logo">Cybbit</div>
+        <div class="logo"><a href="/">Cybbit</a></div>
     </div>
     
     <div class="auth-container">
         <div class="auth-card">
-            <h1 class="auth-title">Create Account</h1>
+            <h1 class="auth-title">Create Your Account</h1>
+            
+            <div class="progress-bar">
+                <div class="progress-step {% if step >= 1 %}active{% endif %}">1</div>
+                <div class="progress-line {% if step >= 2 %}active{% endif %}"></div>
+                <div class="progress-step {% if step >= 2 %}active{% endif %}">2</div>
+                <div class="progress-line {% if step >= 3 %}active{% endif %}"></div>
+                <div class="progress-step {% if step >= 3 %}active{% endif %}">3</div>
+            </div>
             
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
@@ -23,24 +31,65 @@
                 {% endif %}
             {% endwith %}
             
+            {% if step == 1 %}
+            <p class="step-description">Step 1: Enter your details</p>
             <form method="POST" action="/register">
+                <input type="hidden" name="step" value="1">
                 <div class="form-group">
                     <label for="username">Username</label>
-                    <input type="text" id="username" name="username" required>
+                    <input type="text" id="username" name="username" placeholder="Choose a unique username" required>
+                    <small class="form-hint">This will be your display name on posts and comments</small>
                 </div>
                 
                 <div class="form-group">
+                    <label for="email">Email Address</label>
+                    <input type="email" id="email" name="email" placeholder="your.email@example.com" required>
+                    <small class="form-hint">We'll send a verification code to this email</small>
+                </div>
+                
+                <button type="submit" class="submit-btn">Continue</button>
+            </form>
+            
+            {% elif step == 2 %}
+            <p class="step-description">Step 2: Verify your email</p>
+            <div class="info-box">
+                <p class="info-text">📧 We've sent a 4-digit verification code to:</p>
+                <p class="email-display">{{ email }}</p>
+                <p class="info-subtext">Please check your inbox (and spam folder)</p>
+            </div>
+            <form method="POST" action="/register">
+                <input type="hidden" name="step" value="2">
+                <div class="form-group">
+                    <label for="code">Verification Code</label>
+                    <input type="text" id="code" name="code" placeholder="Enter 4-digit code" maxlength="4" pattern="\d{4}" class="code-input" required>
+                    <small class="form-hint">Code expires in 10 minutes</small>
+                </div>
+                
+                <button type="submit" class="submit-btn">Verify Email</button>
+            </form>
+            <a href="/register" class="resend-link">Didn't receive the code? Start over</a>
+            
+            {% elif step == 3 %}
+            <p class="step-description">Step 3: Create your password</p>
+            <div class="success-box">
+                <p>✓ Email verified successfully!</p>
+            </div>
+            <form method="POST" action="/register">
+                <input type="hidden" name="step" value="3">
+                <div class="form-group">
                     <label for="password">Password</label>
-                    <input type="password" id="password" name="password" required>
+                    <input type="password" id="password" name="password" placeholder="Minimum 6 characters" required>
+                    <small class="form-hint">Use a strong password with letters, numbers, and symbols</small>
                 </div>
                 
                 <div class="form-group">
                     <label for="confirm_password">Confirm Password</label>
-                    <input type="password" id="confirm_password" name="confirm_password" required>
+                    <input type="password" id="confirm_password" name="confirm_password" placeholder="Re-enter your password" required>
                 </div>
                 
-                <button type="submit" class="submit-btn">Register</button>
+                <button type="submit" class="submit-btn">Complete Registration</button>
             </form>
+            {% endif %}
             
             <p class="auth-footer">Already have an account? <a href="/login">Login here</a></p>
         </div>

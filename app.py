@@ -3,6 +3,10 @@ import sqlite3
 from datetime import datetime
 import json
 from functools import wraps
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-change-this-in-production'  # Change this!
@@ -40,10 +44,11 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    ''')
+    ''')    
     
     # Comments table
     cursor.execute('''
@@ -54,6 +59,17 @@ def init_db():
             content TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (post_id) REFERENCES posts (id)
+        )
+    ''')
+
+    # Verification codes table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS verification_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            code TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            used INTEGER DEFAULT 0
         )
     ''')
     
@@ -86,6 +102,108 @@ def init_db():
     
     conn.commit()
     conn.close()
+
+def send_verification_email(email, code):
+    """Send verification code via email"""
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_ADDRESS
+        msg['To'] = email
+        msg['Subject'] = 'Cybbit - Email Verification Code'
+        
+        body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; background-color: #0f1419; color: #e4e6eb; padding: 20px;">
+            <div style="max-width: 600px; margin: 0 auto; background-color: #1a2332; border-radius: 8px; padding: 30px; border: 1px solid #2d3748;">
+                <h1 style="color: #ffffff; margin-bottom: 20px;">Welcome to Cybbit!</h1>
+                <p style="font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+                    Thank you for registering. Please use the verification code below to complete your registration:
+                </p>
+                <div style="background-color: #374151; padding: 20px; border-radius: 6px; text-align: center; margin: 30px 0;">
+                    <h2 style="color: #60a5fa; font-size: 36px; letter-spacing: 8px; margin: 0;">{code}</h2>
+                </div>
+                <p style="font-size: 14px; color: #9ca3af; margin-top: 20px;">
+                    This code will expire in 10 minutes. If you didn't request this code, please ignore this email.
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        msg.attach(MIMEText(body, 'html'))
+        
+        server = smtplib.SMTP(EMAIL_HOST, EMAIL_PORT)
+        server.starttls()
+        server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        
+        return True
+    except Exception as e:
+        print(f"Email error: {e}")
+        return False
+
+def generate_verification_code():
+    """Generate 4-digit verification code"""
+    return str(random.randint(1000, 9999))
+
+def save_verification_code(email, code):
+    """Save verification code to database"""
+    conn = get_db()
+    cursor = conn.cursor()
+    expires_at = datetime.now() + timedelta(minutes=10)
+    cursor.execute('INSERT INTO verification_codes (email, code, expires_at) VALUES (?, ?, ?)',
+                   (email, code, expires_at))
+    conn.commit()
+    conn.close()
+
+def verify_code(email, code):
+    """Verify the code provided by user"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT * FROM verification_codes 
+        WHERE email = ? AND code = ? AND used = 0 AND expires_at > ?
+        ORDER BY id DESC LIMIT 1
+    ''', (email, code, datetime.now()))
+    result = cursor.fetchone()
+    
+    if result:
+        cursor.execute('UPDATE verification_codes SET used = 1 WHERE id = ?', (result['id'],))
+        conn.commit()
+        conn.close()
+        return True
+    
+    conn.close()
+    return False
+
+def username_exists(username):
+    """Check if username already exists"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None
+
+def email_exists(email):
+    """Check if email already exists"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE email = ?', (email,))
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None
+
+def user_exists(identifier):
+    """Check if user exists by username or email"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE username = ? OR email = ?', (identifier, identifier))
+    user = cursor.fetchone()
+    conn.close()
+    return user is not None
+
 
 def login_required(f):
     """Decorator to require login for certain routes"""
@@ -209,12 +327,13 @@ def add_post(author, title, content, tags):
     conn.commit()
     conn.close()
 
-def create_user(username, password):
+def create_user(username, email, password):
     """Create a new user"""
     conn = get_db()
     cursor = conn.cursor()
     try:
-        cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)', (username, password))
+        cursor.execute('INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
+                       (username, email, password))
         conn.commit()
         conn.close()
         return True
@@ -222,14 +341,15 @@ def create_user(username, password):
         conn.close()
         return False
 
-def verify_user(username, password):
-    """Verify user credentials"""
+def verify_login(identifier, password):
+    """Verify user login with username or email"""
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM users WHERE username = ? AND password = ?', (username, password))
+    cursor.execute('SELECT * FROM users WHERE (username = ? OR email = ?) AND password = ?',
+                   (identifier, identifier, password))
     user = cursor.fetchone()
     conn.close()
-    return user is not None
+    return user
 
 # Initialize database when app starts
 with app.app_context():
@@ -292,6 +412,14 @@ def create_post():
     
     flash('Post created successfully!', 'success')
     return redirect(url_for('posts_page'))
+
+# Email configuration - UPDATE THESE WITH YOUR CREDENTIALS
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_ADDRESS = 'noreply.cyberpulse@gmail.com'
+EMAIL_PASSWORD = 'sudo repolist'
+
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login_page():
