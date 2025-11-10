@@ -143,6 +143,11 @@ def send_verification_email(email, code):
         print(f"Email error: {e}")
         return False
 
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_ADDRESS = 'noreply.cyberpulse@gmail.com'
+EMAIL_PASSWORD = 'blhp gwnv yzpg hgnc'
+
 def generate_verification_code():
     """Generate 4-digit verification code"""
     return str(random.randint(1000, 9999))
