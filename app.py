@@ -7,9 +7,26 @@ import random
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import os
+import base64
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-change-this-in-production'  # Change this!
+
+
+# File upload configuration
+UPLOAD_FOLDER = 'static/uploads'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+
+# Create upload folder if it doesn't exist
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 
 # Database setup
 DATABASE = 'forum.db'
@@ -32,6 +49,7 @@ def init_db():
             author TEXT NOT NULL,
             title TEXT NOT NULL,
             content TEXT NOT NULL,
+            image_path TEXT,
             tags TEXT NOT NULL,
             upvotes INTEGER DEFAULT 0,
             downvotes INTEGER DEFAULT 0,
@@ -230,6 +248,9 @@ def get_all_posts():
     
     posts = []
     for row in rows:
+        # Get all column names
+        columns = row.keys()
+        
         posts.append({
             'id': row['id'],
             'author': row['author'],
@@ -258,6 +279,7 @@ def get_post_by_id(post_id):
             'author': row['author'],
             'title': row['title'],
             'content': row['content'],
+            'image_path': row['image_path'] if 'image_path' in row.keys() else None,
             'tags': json.loads(row['tags']),
             'upvotes': row['upvotes'],
             'downvotes': row['downvotes'],
@@ -298,37 +320,43 @@ def add_comment(post_id, author, content):
 def format_timestamp(timestamp):
     """Format timestamp to relative time"""
     try:
-        post_time = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+        # Handle both string and datetime objects
+        if isinstance(timestamp, str):
+            post_time = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+        else:
+            post_time = timestamp
+            
         now = datetime.now()
         diff = now - post_time
         
-        if diff.days > 0:
-            if diff.days == 1:
-                return '1 day ago'
-            elif diff.days < 30:
-                return f'{diff.days} days ago'
-            else:
-                return post_time.strftime('%b %d, %Y')
-        elif diff.seconds >= 3600:
-            hours = diff.seconds // 3600
-            return f'{hours} hour{"s" if hours > 1 else ""} ago'
-        elif diff.seconds >= 60:
-            minutes = diff.seconds // 60
-            return f'{minutes} minute{"s" if minutes > 1 else ""} ago'
-        else:
+        # Calculate total seconds for more accurate time differences
+        total_seconds = diff.total_seconds()
+        
+        if total_seconds < 60:
             return 'Just now'
-    except:
+        elif total_seconds < 3600:  # Less than 1 hour
+            minutes = int(total_seconds // 60)
+            return f'{minutes} minute{"s" if minutes > 1 else ""} ago'
+        elif total_seconds < 86400:  # Less than 1 day
+            hours = int(total_seconds // 3600)
+            return f'{hours} hour{"s" if hours > 1 else ""} ago'
+        elif diff.days < 30:
+            return f'{diff.days} day{"s" if diff.days > 1 else ""} ago'
+        else:
+            return post_time.strftime('%b %d, %Y')
+    except Exception as e:
+        print(f"Timestamp error: {e}")
         return timestamp
 
-def add_post(author, title, content, tags):
+def add_post(author, title, content, tags, image_path=None):
     """Add a new post to database"""
     conn = get_db()
     cursor = conn.cursor()
     
     cursor.execute('''
-        INSERT INTO posts (author, title, content, tags, upvotes, downvotes)
-        VALUES (?, ?, ?, ?, 0, 0)
-    ''', (author, title, content, json.dumps(tags)))
+        INSERT INTO posts (author, title, content, image_path, tags, upvotes, downvotes)
+        VALUES (?, ?, ?, ?, ?, 0, 0)
+    ''', (author, title, content, image_path, json.dumps(tags)))
     
     conn.commit()
     conn.close()
@@ -403,6 +431,32 @@ def create_post():
     title = request.form.get('title')
     content = request.form.get('content')
     tags_input = request.form.get('tags', '')
+    image_data = request.form.get('image_data')
+    image_position = request.form.get('image_position')
+    
+    # Handle image if provided
+    image_path = None
+    if image_data and image_data.startswith('data:image'):
+        try:
+            # Extract image format and data
+            header, encoded = image_data.split(',', 1)
+            image_format = header.split(';')[0].split('/')[1]
+            
+            # Generate unique filename
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"post_{timestamp}.{image_format}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            
+            # Decode and save image
+            import base64
+            image_bytes = base64.b64decode(encoded)
+            with open(filepath, 'wb') as f:
+                f.write(image_bytes)
+            
+            image_path = f"uploads/{filename}"
+        except Exception as e:
+            print(f"Image upload error: {e}")
+            flash('Failed to upload image. Post created without image.', 'error')
     
     # Process tags
     tags = [tag.strip() for tag in tags_input.split(',') if tag.strip()]
@@ -413,12 +467,16 @@ def create_post():
     if not author.startswith('@'):
         author = f'@{author}'
     
+    # Content already has [IMAGE] marker at the right position from frontend
+    # Replace [IMAGE] with [IMAGE_HERE] for backend processing
+    if image_path and '[IMAGE]' in content:
+        content = content.replace('[IMAGE]', '[IMAGE_HERE]')
+    
     # Save to database
-    add_post(author, title, content, tags)
+    add_post(author, title, content, tags, image_path)
     
     flash('Post created successfully!', 'success')
     return redirect(url_for('posts_page'))
-
 
 @app.route('/login', methods=['GET', 'POST'])
 def login_page():

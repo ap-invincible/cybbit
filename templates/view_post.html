@@ -8,7 +8,7 @@
 </head>
 <body>
     <div class="header">
-        <div class="logo">CyberPulse</div>
+        <div class="logo"><a href="/">CyberPulse</a></div>
         <div class="user-menu">
             {% if session.username %}
                 <span class="username">@{{ session.username }}</span>
@@ -54,7 +54,22 @@
                     <span class="tag">{{ tag }}</span>
                     {% endfor %}
                 </div>
-                <p class="post-content-full">{{ post.content }}</p>
+                
+                <!-- Content with Image Insertion -->
+                <div class="post-content-full">
+                    {% if post.image_path and '[IMAGE_HERE]' in post.content %}
+                        {% set content_parts = post.content.split('[IMAGE_HERE]') %}
+                        {{ content_parts[0] }}
+                        <img src="{{ url_for('static', filename=post.image_path) }}" alt="Post image" class="post-image">
+                        {{ content_parts[1] if content_parts|length > 1 else '' }}
+                    {% else %}
+                        {{ post.content }}
+                        {% if post.image_path %}
+                            <img src="{{ url_for('static', filename=post.image_path) }}" alt="Post image" class="post-image">
+                        {% endif %}
+                    {% endif %}
+                </div>
+                
                 <div class="post-actions">
                     <div class="action-btn">
                         ↑ Upvote ({{ post.upvotes }})

@@ -764,3 +764,53 @@ input[type="password"]:focus {
     background-color: #2563eb;
     transform: translateY(-2px);
 }
+
+.content-editor-wrapper {
+    position: relative;
+}
+
+#content {
+    min-height: 200px;
+    transition: border-color 0.3s;
+}
+
+.image-preview-container {
+    margin-top: 15px;
+}
+
+.image-preview {
+    background-color: #0f1419;
+    border: 1px solid #374151;
+    border-radius: 8px;
+    padding: 15px;
+    text-align: center;
+}
+
+.image-preview img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 6px;
+    margin-bottom: 10px;
+}
+
+.remove-image-btn {
+    background-color: #ef4444;
+    color: #ffffff;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: background-color 0.2s;
+}
+
+.remove-image-btn:hover {
+    background-color: #dc2626;
+}
+
+.preview-label {
+    color: #9ca3af;
+    font-size: 12px;
+    margin-top: 10px;
+}

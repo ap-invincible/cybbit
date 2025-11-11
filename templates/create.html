@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CyberPulse - Create Post</title>
+    <title>Cybbit - Create Post</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
     <div class="header">
-        <div class="logo">CyberPulse</div>
+        <div class="logo"><a href="/">CyberPulse</a></div>
         <div class="user-menu">
             {% if session.username %}
                 <span class="username">@{{ session.username }}</span>
@@ -35,7 +35,7 @@
         <div class="content">
             <div class="form-container">
                 <h1 class="form-title">Create New Post</h1>
-                <form method="POST" action="/create-post">
+                <form method="POST" action="/create-post" enctype="multipart/form-data" id="createPostForm">
                     <div class="form-group">
                         <label for="author">Author Username</label>
                         <input type="text" id="author" name="author" placeholder="@YourUsername" required>
@@ -48,8 +48,16 @@
                     
                     <div class="form-group">
                         <label for="content">Content</label>
-                        <textarea id="content" name="content" placeholder="Write your post content here..." required></textarea>
+                        <div class="content-editor-wrapper">
+                            <textarea id="content" name="content" placeholder="Write your post content here... (You can paste images directly with Ctrl+V)" required></textarea>
+                            <div class="image-preview-container" id="imagePreviewContainer"></div>
+                        </div>
+                        <small class="form-hint">💡 Tip: Copy an image and paste it here with Ctrl+V, or drag & drop an image file</small>
                     </div>
+                    
+                    <!-- Hidden inputs for image data -->
+                    <input type="hidden" id="imageData" name="image_data">
+                    <input type="hidden" id="imagePosition" name="image_position">
                     
                     <div class="form-group">
                         <label for="tags">Tags (comma-separated)</label>
@@ -61,5 +69,103 @@
             </div>
         </div>
     </div>
+
+    <script>
+        const contentTextarea = document.getElementById('content');
+        const imagePreviewContainer = document.getElementById('imagePreviewContainer');
+        const imageDataInput = document.getElementById('imageData');
+        const imagePositionInput = document.getElementById('imagePosition');
+        let currentImage = null;
+
+        // Handle paste event
+        contentTextarea.addEventListener('paste', function(e) {
+            const items = e.clipboardData.items;
+            
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    e.preventDefault();
+                    const blob = items[i].getAsFile();
+                    handleImageUpload(blob);
+                    break;
+                }
+            }
+        });
+
+        // Handle drag and drop
+        contentTextarea.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            this.style.borderColor = '#60a5fa';
+        });
+
+        contentTextarea.addEventListener('dragleave', function(e) {
+            this.style.borderColor = '#374151';
+        });
+
+        contentTextarea.addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.style.borderColor = '#374151';
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].type.indexOf('image') !== -1) {
+                handleImageUpload(files[0]);
+            }
+        });
+
+        function handleImageUpload(file) {
+            // Check file size (16MB max)
+            if (file.size > 16 * 1024 * 1024) {
+                alert('Image size must be less than 16MB');
+                return;
+            }
+
+            // Check file type
+            const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif'];
+            if (!validTypes.includes(file.type)) {
+                alert('Only PNG, JPG, JPEG, and GIF images are supported');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                currentImage = e.target.result;
+                
+                // Calculate cursor position to insert [IMAGE] marker
+                const cursorPos = contentTextarea.selectionStart;
+                const textBefore = contentTextarea.value.substring(0, cursorPos);
+                const textAfter = contentTextarea.value.substring(cursorPos);
+                
+                // Insert [IMAGE] marker at cursor position
+                contentTextarea.value = textBefore + '[IMAGE]' + textAfter;
+                
+                // Store image data and position
+                imageDataInput.value = currentImage;
+                imagePositionInput.value = cursorPos.toString();
+                
+                // Show preview
+                displayImagePreview(currentImage);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function displayImagePreview(imageData) {
+            imagePreviewContainer.innerHTML = `
+                <div class="image-preview">
+                    <img src="${imageData}" alt="Preview">
+                    <button type="button" class="remove-image-btn" onclick="removeImage()">✕ Remove Image</button>
+                    <p class="preview-label">Image will appear at [IMAGE] marker in your post</p>
+                </div>
+            `;
+        }
+
+        function removeImage() {
+            currentImage = null;
+            imageDataInput.value = '';
+            imagePositionInput.value = '';
+            imagePreviewContainer.innerHTML = '';
+            
+            // Remove [IMAGE] marker from content
+            contentTextarea.value = contentTextarea.value.replace('[IMAGE]', '');
+        }
+    </script>
 </body>
 </html>
