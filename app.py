@@ -93,7 +93,7 @@ def init_db():
             FOREIGN KEY (post_id) REFERENCES posts(id),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
-    ''')    
+    ''')     
     
     # Comments table
     cursor.execute('''
@@ -728,22 +728,18 @@ def logout():
 @login_required
 def profile_page():
     """
-    User profile overview:
-      - basic user info (username, email, member since)
-      - total posts by user
-      - total upvotes & downvotes received across their posts
-      - total comments made by user
-      - total upvotes/downvotes GIVEN by the user (from votes table)
-      - top 3 tags used in user's own posts (most frequent)
-      - top 3 tags the user has voted on (by frequency)
-      - recent posts by user (last 5)
+    Robust profile page:
+      - works even if the `votes` table or the `value` column is missing
+      - collects posts/comments counts, received up/down, votes given (if available)
+      - top tags from user's posts and tags on posts the user voted on (if votes available)
+      - recent posts
     """
-    username = session.get('username')  # stored without '@'
+    username = session.get('username')
     if not username:
         flash('User not found in session.', 'error')
         return redirect(url_for('login_page'))
 
-    author_tag = f'@{username}'  # posts/comments store author with @
+    author_tag = f'@{username}'
     user_id = get_user_id_by_username(username)
     if user_id is None:
         flash('User record not found.', 'error')
@@ -762,7 +758,8 @@ def profile_page():
     cursor.execute('SELECT COUNT(*) AS cnt FROM posts WHERE author = ?', (author_tag,))
     total_posts = cursor.fetchone()['cnt'] or 0
 
-    # Upvotes/downvotes received across their posts (sum of post columns)
+    # Upvotes/downvotes received across their posts
+    # Use IFNULL to be safe
     cursor.execute('SELECT IFNULL(SUM(upvotes), 0) AS up_recv, IFNULL(SUM(downvotes), 0) AS down_recv FROM posts WHERE author = ?', (author_tag,))
     recv_row = cursor.fetchone()
     upvotes_received = recv_row['up_recv'] if recv_row and 'up_recv' in recv_row.keys() else (recv_row[0] if recv_row else 0)
@@ -772,16 +769,98 @@ def profile_page():
     cursor.execute('SELECT COUNT(*) AS cnt FROM comments WHERE author = ?', (author_tag,))
     comments_count = cursor.fetchone()['cnt'] or 0
 
-    # Votes GIVEN by this user (from votes table)
-    cursor.execute('''
-        SELECT
-          SUM(CASE WHEN value = 1 THEN 1 ELSE 0 END) AS up_given,
-          SUM(CASE WHEN value = -1 THEN 1 ELSE 0 END) AS down_given
-        FROM votes WHERE user_id = ?
-    ''', (user_id,))
-    given_row = cursor.fetchone()
-    upvotes_given = given_row['up_given'] or 0
-    downvotes_given = given_row['down_given'] or 0
+    # Check whether votes table exists and whether it has a 'value' (or similar) column
+    votes_table_exists = False
+    votes_value_column = None
+    try:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='votes'")
+        if cursor.fetchone():
+            votes_table_exists = True
+            # inspect columns
+            cursor.execute("PRAGMA table_info(votes)")
+            cols = cursor.fetchall()
+            for c in cols:
+                # row form: (cid, name, type, notnull, dflt_value, pk)
+                colname = c[1] if isinstance(c, (list, tuple)) else c['name']
+                if colname in ('value', 'vote', 'val'):
+                    votes_value_column = colname
+                    break
+            # if not found, try to detect any integer-like column that might be vote
+            if votes_value_column is None:
+                for c in cols:
+                    colname = c[1] if isinstance(c, (list, tuple)) else c['name']
+                    # skip obvious id and fk columns
+                    if colname in ('id', 'user_id', 'post_id', 'created_at'):
+                        continue
+                    # assume this column could be the vote column (best-effort)
+                    votes_value_column = colname
+                    break
+    except Exception as e:
+        # If any error occurs, treat as votes not available
+        votes_table_exists = False
+        votes_value_column = None
+
+    # Default values
+    upvotes_given = 0
+    downvotes_given = 0
+    top_tags_voted = []
+
+    if votes_table_exists and votes_value_column:
+        try:
+            # Votes GIVEN by this user (count of rows where value==1 and value==-1)
+            # we use parameterized SQL and compute using CASE so it works for integer vote values
+            # note: if votes_value_column name is not 'value', inject it safely by using string
+            col = votes_value_column
+            # Build SQL dynamically but parameterize user_id
+            sql = f'''
+                SELECT
+                  SUM(CASE WHEN {col} = 1 THEN 1 ELSE 0 END) AS up_given,
+                  SUM(CASE WHEN {col} = -1 THEN 1 ELSE 0 END) AS down_given
+                FROM votes WHERE user_id = ?
+            '''
+            cursor.execute(sql, (user_id,))
+            given_row = cursor.fetchone()
+            if given_row:
+                # fetch by column name if available, else by index
+                if isinstance(given_row, sqlite3.Row):
+                    upvotes_given = given_row['up_given'] or 0
+                    downvotes_given = given_row['down_given'] or 0
+                else:
+                    upvotes_given = given_row[0] or 0
+                    downvotes_given = given_row[1] or 0
+        except Exception as e:
+            # if something goes wrong, keep zeros and continue
+            print("Vote counts error:", e)
+            upvotes_given = 0
+            downvotes_given = 0
+
+        try:
+            # Top tags the user has voted ON (based on posts they voted on)
+            cursor.execute(f'''
+                SELECT p.tags as tags FROM posts p
+                JOIN votes v ON p.id = v.post_id
+                WHERE v.user_id = ?
+            ''', (user_id,))
+            rows = cursor.fetchall()
+            tag_counts_voted = {}
+            for r in rows:
+                try:
+                    tags = json.loads(r['tags']) if 'tags' in r.keys() else json.loads(r[0])
+                    if isinstance(tags, list):
+                        for t in tags:
+                            tag_counts_voted[t] = tag_counts_voted.get(t, 0) + 1
+                except Exception:
+                    continue
+            top_tags_voted = sorted(tag_counts_voted.items(), key=lambda x: x[1], reverse=True)[:3]
+            top_tags_voted = [{'tag': t, 'count': c} for t, c in top_tags_voted]
+        except Exception as e:
+            print("Top tags voted error:", e)
+            top_tags_voted = []
+    else:
+        # votes table not present or no vote column — safe fallbacks
+        upvotes_given = 0
+        downvotes_given = 0
+        top_tags_voted = []
 
     # Top tags used in user's own posts
     cursor.execute('SELECT tags FROM posts WHERE author = ?', (author_tag,))
@@ -789,36 +868,15 @@ def profile_page():
     tag_counts = {}
     for r in rows:
         try:
-            tags = json.loads(r['tags'])
+            tags = json.loads(r['tags']) if 'tags' in r.keys() else json.loads(r[0])
             if isinstance(tags, list):
                 for t in tags:
                     tag_counts[t] = tag_counts.get(t, 0) + 1
         except Exception:
             # ignore malformed tags
             continue
-    # sort and pick top 3
     top_tags_posted = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:3]
-    # transform to list of dicts for template
     top_tags_posted = [{'tag': t, 'count': c} for t, c in top_tags_posted]
-
-    # Top tags the user has voted ON (based on posts they voted on)
-    cursor.execute('''
-        SELECT p.tags as tags FROM posts p
-        JOIN votes v ON p.id = v.post_id
-        WHERE v.user_id = ?
-    ''', (user_id,))
-    rows = cursor.fetchall()
-    tag_counts_voted = {}
-    for r in rows:
-        try:
-            tags = json.loads(r['tags'])
-            if isinstance(tags, list):
-                for t in tags:
-                    tag_counts_voted[t] = tag_counts_voted.get(t, 0) + 1
-        except Exception:
-            continue
-    top_tags_voted = sorted(tag_counts_voted.items(), key=lambda x: x[1], reverse=True)[:3]
-    top_tags_voted = [{'tag': t, 'count': c} for t, c in top_tags_voted]
 
     # Recent posts by this user (last 5)
     cursor.execute('SELECT id, title, content, upvotes, downvotes, created_at, tags FROM posts WHERE author = ? ORDER BY created_at DESC LIMIT 5', (author_tag,))
