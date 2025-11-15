@@ -69,19 +69,7 @@ def init_db():
         )
     ''')
 
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS votes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            post_id INTEGER NOT NULL,
-            value INTEGER NOT NULL,   -- 1 for upvote, -1 for downvote
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (user_id, post_id),
-            FOREIGN KEY (user_id) REFERENCES users(id),
-            FOREIGN KEY (post_id) REFERENCES posts(id)
-        )
-    ''')
-
+     # FIXED: Single votes table definition
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS votes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,16 +115,16 @@ def init_db():
                 'Critical Vulnerability Found in Major SSL Library',
                 'Researchers have discovered a critical vulnerability in OpenSSL that could affect millions of websites worldwide. The flaw, designated as CVE-2024-XXXX, allows attackers to bypass encryption protocols...',
                 json.dumps(['#OpenSSL', '#Vulnerability', '#Security']),
-                159,
-                14
+                0,
+                0
             ),
             (
                 '@SecureNet',
                 'New Zero-Day Exploit Found in Quantum Encryption',
                 'A new zero-day exploit targeting quantum encryption breakthroughs has been identified. Experts are scrambling to patch the vulnerability before it can be widely used by malicious actors...',
                 json.dumps(['#ZeroDay', '#Quantum', '#Exploit']),
-                102,
-                9
+                0,
+                0
             )
         ]
         
@@ -480,7 +468,7 @@ def add_comment_to_post(post_id):
 @app.route('/post/<int:post_id>/vote', methods=['POST'])
 @login_required
 def vote_post(post_id):
-    # Expect JSON or form: vote='up' or 'down'
+    """Handle upvote/downvote for a post"""
     vote_action = request.json.get('vote') if request.is_json else request.form.get('vote')
     if vote_action not in ('up', 'down'):
         return jsonify({'error': 'Invalid vote action'}), 400
@@ -495,11 +483,11 @@ def vote_post(post_id):
     conn = get_db()
     cursor = conn.cursor()
 
-    # Check existing vote
-    cursor.execute('SELECT id, vote FROM votes WHERE user_id = ? AND post_id = ?', (user_id, post_id))
-    existing = cursor.fetchone()
-
     try:
+        # Check existing vote
+        cursor.execute('SELECT id, vote FROM votes WHERE user_id = ? AND post_id = ?', (user_id, post_id))
+        existing = cursor.fetchone()
+
         if existing is None:
             # Insert new vote
             cursor.execute('INSERT INTO votes (post_id, user_id, vote) VALUES (?, ?, ?)',
@@ -507,26 +495,26 @@ def vote_post(post_id):
         else:
             existing_vote = existing['vote']
             if existing_vote == new_vote:
-                # user clicked same vote again -> remove (unvote)
+                # User clicked same vote again -> remove (unvote)
                 cursor.execute('DELETE FROM votes WHERE id = ?', (existing['id'],))
             else:
-                # switch vote: update row
+                # Switch vote: update row
                 cursor.execute('UPDATE votes SET vote = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?',
                                (new_vote, existing['id']))
 
         conn.commit()
 
-        # Recalculate counts (single source of truth)
+        # Recalculate counts
         cursor.execute('SELECT COUNT(*) FROM votes WHERE post_id = ? AND vote = 1', (post_id,))
         up = cursor.fetchone()[0]
         cursor.execute('SELECT COUNT(*) FROM votes WHERE post_id = ? AND vote = -1', (post_id,))
         down = cursor.fetchone()[0]
 
-        # Optional: update cached counts in posts table (keeps your posts.upvotes/downvotes aligned)
+        # Update cached counts in posts table
         cursor.execute('UPDATE posts SET upvotes = ?, downvotes = ? WHERE id = ?', (up, down, post_id))
         conn.commit()
 
-        # Get what the user currently has after operation
+        # Get user's current vote state
         cursor.execute('SELECT vote FROM votes WHERE post_id = ? AND user_id = ?', (post_id, user_id))
         row = cursor.fetchone()
         user_vote = row['vote'] if row else 0
