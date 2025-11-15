@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - CyberPulse</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="header">
+        <div class="logo">CyberPulse</div>
+        
+        <div class="search-container">
+            <input type="text" placeholder="Search CyberPulse..." class="search-bar">
+        </div>
+
+        <div class="user-menu">
+            <a href="{{ url_for('posts_page') }}" class="nav-btn">Home</a>
+            {% if session.username %}
+                <a href="{{ url_for('profile_page') }}" class="nav-btn">Profile</a>
+                <a href="{{ url_for('profile_page') }}" class="avatar-link" title="@{{ session.username }}">
+                    <div class="avatar-placeholder">
+                        {{ session.username[0]|upper }}
+                    </div>
+                </a>
+                <a href="{{ url_for('logout') }}" class="logout-btn nav-btn">Logout</a>
+            {% else %}
+                <a href="{{ url_for('login_page') }}" class="login-btn nav-btn">Login</a>
+                <a href="{{ url_for('register_page') }}" class="register-btn nav-btn">Register</a>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="sidebar">
+    <a href="{{ url_for('posts_page') }}" class="nav-item {% if request.endpoint == 'posts_page' %}active{% endif %}">
+        <span class="icon"><i class="fas fa-file-alt"></i></span>
+        <span>Posts</span>
+    </a>
+    <a href="{{ url_for('create_page') }}" class="nav-item {% if request.endpoint == 'create_page' %}active{% endif %}">
+        <span class="icon"><i class="fas fa-pencil-alt"></i></span>
+        <span>Create</span>
+    </a>
+    {% if session.username %}
+    <a href="{{ url_for('profile_page') }}" class="nav-item {% if request.endpoint == 'profile_page' %}active{% endif %}">
+        <span class="icon"><i class="fas fa-user"></i></span>
+        <span>Profile</span>
+    </a>
+    <a href="{{ url_for('settings_page') }}" class="nav-item {% if request.endpoint == 'settings_page' %}active{% endif %}">
+        <span class="icon"><i class="fas fa-cog"></i></span>
+        <span>Settings</span>
+    </a>
+    {% endif %}
+</div>
+        
+        <div class="content settings-content">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="flash-messages">
+                    {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+            
+            <div class="settings-header">
+                <h1>Settings</h1>
+                <p class="settings-subtitle">Manage your account preferences and settings</p>
+            </div>
+
+            <div class="settings-container">
+                <!-- Account Settings -->
+                <div class="settings-section">
+                    <div class="section-header">
+                        <i class="fas fa-user-circle"></i>
+                        <h2>Account Settings</h2>
+                    </div>
+                    
+                    <form method="POST" action="{{ url_for('update_account') }}" class="settings-form">
+                        <div class="form-group">
+                            <label for="username">Username</label>
+                            <input type="text" id="username" name="username" value="{{ session.username }}" disabled>
+                            <small>Username cannot be changed</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="email">Email Address</label>
+                            <input type="email" id="email" name="email" value="{{ user_email }}" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="bio">Bio</label>
+                            <textarea id="bio" name="bio" rows="3" placeholder="Tell us about yourself...">{{ user_bio }}</textarea>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Save Changes</button>
+                    </form>
+                </div>
+
+                <!-- Password Change -->
+                <div class="settings-section">
+                    <div class="section-header">
+                        <i class="fas fa-lock"></i>
+                        <h2>Change Password</h2>
+                    </div>
+                    
+                    <form method="POST" action="{{ url_for('change_password') }}" class="settings-form">
+                        <div class="form-group">
+                            <label for="current_password">Current Password</label>
+                            <input type="password" id="current_password" name="current_password" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="new_password">New Password</label>
+                            <input type="password" id="new_password" name="new_password" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="confirm_password">Confirm New Password</label>
+                            <input type="password" id="confirm_password" name="confirm_password" required>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Update Password</button>
+                    </form>
+                </div>
+
+                <!-- Notification Settings -->
+                <div class="settings-section">
+                    <div class="section-header">
+                        <i class="fas fa-bell"></i>
+                        <h2>Notification Preferences</h2>
+                    </div>
+                    
+                    <form method="POST" action="{{ url_for('update_notifications') }}" class="settings-form">
+                        <div class="form-group checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="email_comments" {% if notifications.email_comments %}checked{% endif %}>
+                                <span>Email me when someone comments on my posts</span>
+                            </label>
+                        </div>
+
+                        <div class="form-group checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="email_upvotes" {% if notifications.email_upvotes %}checked{% endif %}>
+                                <span>Email me when someone upvotes my posts</span>
+                            </label>
+                        </div>
+
+                        <div class="form-group checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="email_newsletter" {% if notifications.email_newsletter %}checked{% endif %}>
+                                <span>Send me weekly newsletter</span>
+                            </label>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Save Preferences</button>
+                    </form>
+                </div>
+
+                <!-- Privacy Settings -->
+                <div class="settings-section">
+                    <div class="section-header">
+                        <i class="fas fa-shield-alt"></i>
+                        <h2>Privacy Settings</h2>
+                    </div>
+                    
+                    <form method="POST" action="{{ url_for('update_privacy') }}" class="settings-form">
+                        <div class="form-group checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="profile_public" {% if privacy.profile_public %}checked{% endif %}>
+                                <span>Make my profile public</span>
+                            </label>
+                        </div>
+
+                        <div class="form-group checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="show_email" {% if privacy.show_email %}checked{% endif %}>
+                                <span>Show my email on profile</span>
+                            </label>
+                        </div>
+
+                        <div class="form-group checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="allow_messages" {% if privacy.allow_messages %}checked{% endif %}>
+                                <span>Allow other users to message me</span>
+                            </label>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Save Privacy Settings</button>
+                    </form>
+                </div>
+
+                <!-- Danger Zone -->
+                <div class="settings-section danger-zone">
+                    <div class="section-header">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <h2>Danger Zone</h2>
+                    </div>
+                    
+                    <div class="danger-content">
+                        <div class="danger-item">
+                            <div>
+                                <h3>Delete Account</h3>
+                                <p>Once you delete your account, there is no going back. Please be certain.</p>
+                            </div>
+                            <button type="button" class="btn btn-danger" onclick="confirmDelete()">Delete Account</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function confirmDelete() {
+            if (confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
+                if (confirm('This will permanently delete all your posts, comments, and data. Are you absolutely sure?')) {
+                    window.location.href = "{{ url_for('delete_account') }}";
+                }
+            }
+        }
+    </script>
+</body>
+</html>

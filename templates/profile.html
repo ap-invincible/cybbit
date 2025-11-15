@@ -22,19 +22,25 @@
 
   <div class="container">
     <div class="sidebar">
-      <a href="/posts" class="nav-item">
-        <span class="icon">📄</span>
+    <a href="{{ url_for('posts_page') }}" class="nav-item {% if request.endpoint == 'posts_page' %}active{% endif %}">
+        <span class="icon"><i class="fas fa-file-alt"></i></span>
         <span>Posts</span>
-      </a>
-      <a href="/create" class="nav-item">
-        <span class="icon">✏️</span>
+    </a>
+    <a href="{{ url_for('create_page') }}" class="nav-item {% if request.endpoint == 'create_page' %}active{% endif %}">
+        <span class="icon"><i class="fas fa-pencil-alt"></i></span>
         <span>Create</span>
-      </a>
-      <a href="/profile" class="nav-item active">
-        <span class="icon">👤</span>
+    </a>
+    {% if session.username %}
+    <a href="{{ url_for('profile_page') }}" class="nav-item {% if request.endpoint == 'profile_page' %}active{% endif %}">
+        <span class="icon"><i class="fas fa-user"></i></span>
         <span>Profile</span>
-      </a>
-    </div>
+    </a>
+    <a href="{{ url_for('settings_page') }}" class="nav-item {% if request.endpoint == 'settings_page' %}active{% endif %}">
+        <span class="icon"><i class="fas fa-cog"></i></span>
+        <span>Settings</span>
+    </a>
+    {% endif %}
+</div>
 
     <div class="content">
       {% with messages = get_flashed_messages(with_categories=true) %}

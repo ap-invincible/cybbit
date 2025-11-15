@@ -105,6 +105,25 @@ def init_db():
             used INTEGER DEFAULT 0
         )
     ''')
+
+    # User settings table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER UNIQUE NOT NULL,
+            bio TEXT,
+            email_comments INTEGER DEFAULT 1,
+            email_upvotes INTEGER DEFAULT 0,
+            email_newsletter INTEGER DEFAULT 1,
+            profile_public INTEGER DEFAULT 1,
+            show_email INTEGER DEFAULT 0,
+            allow_messages INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    ''')
+
     
     # Check if posts table is empty and add sample posts
     cursor.execute('SELECT COUNT(*) as count FROM posts')
@@ -427,6 +446,36 @@ def verify_login(identifier, password):
     user = cursor.fetchone()
     conn.close()
     return user
+
+def get_user_settings(user_id):
+    """Get user settings, create default if not exists"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM user_settings WHERE user_id = ?', (user_id,))
+    settings = cursor.fetchone()
+    
+    if not settings:
+        # Create default settings
+        cursor.execute('''
+            INSERT INTO user_settings (user_id) VALUES (?)
+        ''', (user_id,))
+        conn.commit()
+        cursor.execute('SELECT * FROM user_settings WHERE user_id = ?', (user_id,))
+        settings = cursor.fetchone()
+    
+    conn.close()
+    return settings
+
+
+def get_user_email(user_id):
+    """Get user email"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT email FROM users WHERE id = ?', (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result['email'] if result else ''
+
 
 # Initialize database when app starts
 with app.app_context():
@@ -898,5 +947,257 @@ def profile_page():
                            recent_posts=recent_posts)
 
 
+@app.route('/settings')
+@login_required
+def settings_page():
+    """Display settings page"""
+    username = session.get('username')
+    user_id = get_user_id_by_username(username)
+    
+    if not user_id:
+        flash('User not found.', 'error')
+        return redirect(url_for('login_page'))
+    
+    settings = get_user_settings(user_id)
+    user_email = get_user_email(user_id)
+    
+    # Convert settings to dict for easier access in template
+    notifications = {
+        'email_comments': settings['email_comments'] if settings else 1,
+        'email_upvotes': settings['email_upvotes'] if settings else 0,
+        'email_newsletter': settings['email_newsletter'] if settings else 1
+    }
+    
+    privacy = {
+        'profile_public': settings['profile_public'] if settings else 1,
+        'show_email': settings['show_email'] if settings else 0,
+        'allow_messages': settings['allow_messages'] if settings else 1
+    }
+    
+    user_bio = settings['bio'] if settings and settings['bio'] else ''
+    
+    return render_template('settings.html', 
+                         user_email=user_email,
+                         user_bio=user_bio,
+                         notifications=notifications,
+                         privacy=privacy)
+
+
+@app.route('/settings/account', methods=['POST'])
+@login_required
+def update_account():
+    """Update account information"""
+    username = session.get('username')
+    user_id = get_user_id_by_username(username)
+    
+    email = request.form.get('email', '').strip()
+    bio = request.form.get('bio', '').strip()
+    
+    if not email:
+        flash('Email is required.', 'error')
+        return redirect(url_for('settings_page'))
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        # Update email in users table
+        cursor.execute('UPDATE users SET email = ? WHERE id = ?', (email, user_id))
+        
+        # Update or insert bio in settings
+        cursor.execute('SELECT id FROM user_settings WHERE user_id = ?', (user_id,))
+        if cursor.fetchone():
+            cursor.execute('UPDATE user_settings SET bio = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', 
+                         (bio, user_id))
+        else:
+            cursor.execute('INSERT INTO user_settings (user_id, bio) VALUES (?, ?)', (user_id, bio))
+        
+        conn.commit()
+        flash('Account settings updated successfully!', 'success')
+    except sqlite3.IntegrityError:
+        flash('Email already in use by another account.', 'error')
+    except Exception as e:
+        print(f"Error updating account: {e}")
+        flash('Failed to update account settings.', 'error')
+    finally:
+        conn.close()
+    
+    return redirect(url_for('settings_page'))
+
+
+@app.route('/settings/password', methods=['POST'])
+@login_required
+def change_password():
+    """Change user password"""
+    username = session.get('username')
+    user_id = get_user_id_by_username(username)
+    
+    current_password = request.form.get('current_password', '')
+    new_password = request.form.get('new_password', '')
+    confirm_password = request.form.get('confirm_password', '')
+    
+    if not all([current_password, new_password, confirm_password]):
+        flash('All password fields are required.', 'error')
+        return redirect(url_for('settings_page'))
+    
+    if new_password != confirm_password:
+        flash('New passwords do not match.', 'error')
+        return redirect(url_for('settings_page'))
+    
+    if len(new_password) < 6:
+        flash('Password must be at least 6 characters long.', 'error')
+        return redirect(url_for('settings_page'))
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify current password
+    cursor.execute('SELECT password FROM users WHERE id = ?', (user_id,))
+    result = cursor.fetchone()
+    
+    if not result or result['password'] != current_password:
+        conn.close()
+        flash('Current password is incorrect.', 'error')
+        return redirect(url_for('settings_page'))
+    
+    # Update password
+    cursor.execute('UPDATE users SET password = ? WHERE id = ?', (new_password, user_id))
+    conn.commit()
+    conn.close()
+    
+    flash('Password updated successfully!', 'success')
+    return redirect(url_for('settings_page'))
+
+
+@app.route('/settings/notifications', methods=['POST'])
+@login_required
+def update_notifications():
+    """Update notification preferences"""
+    username = session.get('username')
+    user_id = get_user_id_by_username(username)
+    
+    email_comments = 1 if request.form.get('email_comments') else 0
+    email_upvotes = 1 if request.form.get('email_upvotes') else 0
+    email_newsletter = 1 if request.form.get('email_newsletter') else 0
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('''
+            UPDATE user_settings 
+            SET email_comments = ?, email_upvotes = ?, email_newsletter = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+        ''', (email_comments, email_upvotes, email_newsletter, user_id))
+        
+        if cursor.rowcount == 0:
+            # Create settings if not exists
+            cursor.execute('''
+                INSERT INTO user_settings (user_id, email_comments, email_upvotes, email_newsletter)
+                VALUES (?, ?, ?, ?)
+            ''', (user_id, email_comments, email_upvotes, email_newsletter))
+        
+        conn.commit()
+        flash('Notification preferences updated!', 'success')
+    except Exception as e:
+        print(f"Error updating notifications: {e}")
+        flash('Failed to update notification preferences.', 'error')
+    finally:
+        conn.close()
+    
+    return redirect(url_for('settings_page'))
+
+
+@app.route('/settings/privacy', methods=['POST'])
+@login_required
+def update_privacy():
+    """Update privacy settings"""
+    username = session.get('username')
+    user_id = get_user_id_by_username(username)
+    
+    profile_public = 1 if request.form.get('profile_public') else 0
+    show_email = 1 if request.form.get('show_email') else 0
+    allow_messages = 1 if request.form.get('allow_messages') else 0
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('''
+            UPDATE user_settings 
+            SET profile_public = ?, show_email = ?, allow_messages = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+        ''', (profile_public, show_email, allow_messages, user_id))
+        
+        if cursor.rowcount == 0:
+            cursor.execute('''
+                INSERT INTO user_settings (user_id, profile_public, show_email, allow_messages)
+                VALUES (?, ?, ?, ?)
+            ''', (user_id, profile_public, show_email, allow_messages))
+        
+        conn.commit()
+        flash('Privacy settings updated!', 'success')
+    except Exception as e:
+        print(f"Error updating privacy: {e}")
+        flash('Failed to update privacy settings.', 'error')
+    finally:
+        conn.close()
+    
+    return redirect(url_for('settings_page'))
+
+
+@app.route('/settings/delete-account')
+@login_required
+def delete_account():
+    """Delete user account and all associated data"""
+    username = session.get('username')
+    user_id = get_user_id_by_username(username)
+    author_tag = f'@{username}'
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        # Delete user's votes
+        cursor.execute('DELETE FROM votes WHERE user_id = ?', (user_id,))
+        
+        # Delete user's comments
+        cursor.execute('DELETE FROM comments WHERE author = ?', (author_tag,))
+        
+        # Delete user's posts
+        cursor.execute('DELETE FROM posts WHERE author = ?', (author_tag,))
+        
+        # Delete user settings
+        cursor.execute('DELETE FROM user_settings WHERE user_id = ?', (user_id,))
+        
+        # Delete verification codes
+        conn_email = get_db()
+        cursor_email = conn_email.cursor()
+        cursor_email.execute('SELECT email FROM users WHERE id = ?', (user_id,))
+        email_result = cursor_email.fetchone()
+        if email_result:
+            cursor.execute('DELETE FROM verification_codes WHERE email = ?', (email_result['email'],))
+        conn_email.close()
+        
+        # Finally, delete the user
+        cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
+        
+        conn.commit()
+        
+        # Clear session
+        session.clear()
+        
+        flash('Your account has been permanently deleted.', 'success')
+        return redirect(url_for('posts_page'))
+    except Exception as e:
+        conn.rollback()
+        print(f"Error deleting account: {e}")
+        flash('Failed to delete account. Please try again.', 'error')
+        return redirect(url_for('settings_page'))
+    finally:
+        conn.close()
+
+
+        
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

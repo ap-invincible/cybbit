@@ -22,14 +22,26 @@
     
     <div class="container">
         <div class="sidebar">
-            <a href="/posts" class="nav-item">
-                <span class="icon">📄</span>
+            <a href="{{ url_for('posts_page') }}" class="nav-item active">
+                <span class="icon"><i class="fas fa-file-alt"></i></span>
                 <span>Posts</span>
             </a>
-            <a href="/create" class="nav-item">
-                <span class="icon">✏️</span>
+            <a href="{{ url_for('create_page') }}" class="nav-item">
+                <span class="icon"><i class="fas fa-pencil-alt"></i></span>
                 <span>Create</span>
             </a>
+            <!-- Settings -->
+             <a href="{{ url_for('profile_page') }}" class="nav-item">
+                <span class="icon"><i class="fas fa-user"></i></span>
+                <span>Settings</span>
+            </a>
+            <!-- Add Profile link, which exists in app.py -->
+            {% if session.username %}
+            <a href="{{ url_for('profile_page') }}" class="nav-item">
+                <span class="icon"><i class="fas fa-user"></i></span>
+                <span>Profile</span>
+            </a>
+            {% endif %}
         </div>
         
         <div class="content">
